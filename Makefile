@@ -9,7 +9,7 @@ DEBUG_CFLAGS := -O0 -g
 RELEASE_CFLAGS := -O3 -g0 -DNDEBUG
 
 #CFLAGS := $(WARN_CFLAGS) -std=c99 -MMD -MP
-CFLAGS := $(WARN_CFLAGS) -std=c99
+CFLAGS := $(WARN_CFLAGS) -std=c99 -pthread
 ifdef DEBUG
 	CFLAGS += $(DEBUG_CFLAGS)
 else
