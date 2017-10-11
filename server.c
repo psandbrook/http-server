@@ -12,13 +12,27 @@
 
 #define BUF_SIZE 1024
 
+// Converts a string to an unsigned 16-bit integer.
+// On success, `*out` is set to the result and `true` is returned. On failure,
+// `false` is returned.
+static bool str_to_u16(const char* str, uint16_t* out) {
+    char* strtol_r = NULL;
+    long out_l = strtol(str, &strtol_r, 0);
+    if (out_l < 0 || out_l > UINT16_MAX || strtol_r == str) {
+        return false;
+    }
+
+    *out = out_l;
+    return true;
+}
+
 static void* client_thread_start(void* sock_ptr) {
     int sock = *(int*)sock_ptr;
     free(sock_ptr);
 
     while (true) {
         char buf[BUF_SIZE];
-        ssize_t n_read = read(sock, &buf, sizeof(buf) - 1);
+        ssize_t n_read = read(sock, buf, sizeof(buf) - 1);
         if (n_read == -1) {
             perror("read() failed");
             break;
@@ -43,16 +57,13 @@ int main(int argc, char** argv) {
         goto error;
     }
 
-    // Get the port number
-    char* strtol_r = NULL;
-    long port_l = strtol(argv[1], &strtol_r, 0);
-    if (port_l < 0 || port_l > UINT16_MAX || strtol_r == argv[1]) {
+    uint16_t port;
+    bool str_to_u16_r = str_to_u16(argv[1], &port);
+    if (!str_to_u16_r) {
         fprintf(stderr, "Port is not valid\n");
         ret = 1;
         goto error;
     }
-
-    uint16_t port = port_l;
 
     int lis_sock = socket(AF_INET6, SOCK_STREAM, 0);
     if (lis_sock == -1) {
@@ -97,6 +108,7 @@ int main(int argc, char** argv) {
                 // Retry
                 continue;
             default:
+                ret = 1;
                 end = true;
                 goto error_lis_sock;
             }
@@ -109,6 +121,7 @@ int main(int argc, char** argv) {
         int* c_sock_ptr = malloc(sizeof(int));
         if (c_sock_ptr == NULL) {
             perror("malloc() failed");
+            ret = 1;
             end = true;
             goto error_attr;
         }
@@ -121,6 +134,7 @@ int main(int argc, char** argv) {
         if (create_r != 0) {
             errno = create_r;
             perror("pthread_create() failed");
+            ret = 1;
             end = true;
             goto error_attr;
         }
