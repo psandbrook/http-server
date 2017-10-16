@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define BUF_SIZE 1024
+#include "client_thread.h"
 
 // Converts a string to an unsigned 16-bit integer.
 // On success, `*out` is set to the result and `true` is returned. On failure,
@@ -24,28 +24,6 @@ static bool str_to_u16(const char* str, uint16_t* out) {
 
     *out = out_l;
     return true;
-}
-
-static void* client_thread_start(void* sock_ptr) {
-    int sock = *(int*)sock_ptr;
-    free(sock_ptr);
-
-    while (true) {
-        char buf[BUF_SIZE];
-        ssize_t n_read = read(sock, buf, sizeof(buf) - 1);
-        if (n_read == -1) {
-            perror("read() failed");
-            break;
-        } else if (n_read == 0) {
-            break;
-        }
-
-        buf[n_read] = '\0';
-        fputs(buf, stdout);
-    }
-
-    close(sock);
-    return NULL;
 }
 
 int main(int argc, char** argv) {

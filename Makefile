@@ -8,27 +8,25 @@ WARN_CFLAGS := \
 DEBUG_CFLAGS := -O0 -g
 RELEASE_CFLAGS := -O3 -g0 -DNDEBUG
 
-#CFLAGS := $(WARN_CFLAGS) -std=c99 -MMD -MP
-CFLAGS := $(WARN_CFLAGS) -std=c99 -pthread
+CFLAGS := $(WARN_CFLAGS) -std=c99 -MMD -MP -pthread
 ifdef DEBUG
 	CFLAGS += $(DEBUG_CFLAGS)
 else
 	CFLAGS += $(RELEASE_CFLAGS)
 endif
 
-SOURCES := server.c
+SOURCES := server.c client_thread.c mystring.c
 OBJECTS := $(SOURCES:.c=.o)
-#DEPS := $(SOURCES:.c=.d)
+DEPS := $(SOURCES:.c=.d)
 BIN := server
 
 .PHONY: all clean
 all: $(BIN)
 
 clean:
-#rm -f $(OBJECTS) $(DEPS) $(BIN)
-	rm -f $(OBJECTS) $(BIN)
+	rm -f $(OBJECTS) $(DEPS) $(BIN)
 
 $(BIN): $(OBJECTS)
 	$(CC) -o $@ $(CFLAGS) $^
 
-#-include $(DEPS)
+-include $(DEPS)
