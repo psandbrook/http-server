@@ -54,8 +54,7 @@ void* client_thread_start(void* sock_ptr) {
             request.len = 1;
         }
 
-        char* chunk = &request.ptr[request.len - 1];
-        ssize_t n_read = read(sock, chunk, CHUNK_SIZE);
+        ssize_t n_read = read(sock, &request.ptr[request.len - 1], CHUNK_SIZE);
         if (n_read == -1) {
             perror("read");
             goto error_request;
@@ -66,7 +65,7 @@ void* client_thread_start(void* sock_ptr) {
 
         request.len += n_read;
         request.ptr[request.len - 1] = '\0';
-        if (strstr(chunk, CRLF CRLF)) { break; }
+        if (strstr(request.ptr, CRLF CRLF)) { break; }
     }
 
     // Parse HTTP request //////////////////////////////////////////////////////
