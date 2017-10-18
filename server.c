@@ -50,6 +50,10 @@ int main(int argc, char** argv) {
         goto error;
     }
 
+    int reuse_addr = 1;
+    // Ignore failure
+    setsockopt(lis_sock, SOL_SOCKET, SO_REUSEADDR, &reuse_addr, sizeof(reuse_addr));
+
     // Bind to any address on the given port
     struct sockaddr_in6 addr = {
         .sin6_family = AF_INET6,

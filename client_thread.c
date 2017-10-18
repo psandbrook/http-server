@@ -30,11 +30,18 @@ static bool str_start(const char* str, const char* start) {
     }
 }
 
+static void fclose_c(FILE* file) {
+    if (file != NULL) {
+        fclose(file);
+    }
+}
+
 void* client_thread_start(void* sock_ptr) {
     int sock = *(int*)sock_ptr;
     free(sock_ptr);
 
-    // Read HTTP request header
+    // Read HTTP request ///////////////////////////////////////////////////////
+
     String request = new_string();
     while (true) {
         if (!reserve(&request, CHUNK_SIZE + 1)) {
@@ -62,14 +69,15 @@ void* client_thread_start(void* sock_ptr) {
         if (strstr(chunk, CRLF CRLF)) { break; }
     }
 
-    // Check HTTP method
+    // Parse HTTP request //////////////////////////////////////////////////////
+
+    // Check method
     const char* method_str = "GET ";
     if (!str_start(request.ptr, method_str)) {
         print_http_req_err();
         goto error_request;
     }
 
-    // Find space character
     char* path = &request.ptr[strlen(method_str)];
     char* sp_ptr = strchr(path, ' ');
     if (sp_ptr == NULL) {
@@ -79,7 +87,7 @@ void* client_thread_start(void* sock_ptr) {
 
     *sp_ptr = '\0';
 
-    // Check HTTP version
+    // Check version
     char* http_ver = sp_ptr + 1;
     if (!str_start(http_ver, "HTTP/1.1" CRLF)) {
         print_http_req_err();
@@ -97,6 +105,8 @@ void* client_thread_start(void* sock_ptr) {
 
     printf("Received HTTP GET request for %s\n", path);
 
+    // Construct HTTP response /////////////////////////////////////////////////
+
     String response = new_string();
     FILE* file = fopen(path, "rb");
     if (file == NULL) {
@@ -110,13 +120,13 @@ void* client_thread_start(void* sock_ptr) {
             );
             if (!append_r) {
                 print_oom();
-                goto error_response;
+                goto error_file;
             }
 
             file = fopen("403-forbidden.html", "rb");
             if (file == NULL) {
                 perror("fopen() failed");
-                goto error_response;
+                goto error_file;
             }
 
             break;
@@ -131,13 +141,13 @@ void* client_thread_start(void* sock_ptr) {
             );
             if (!append_r) {
                 print_oom();
-                goto error_response;
+                goto error_file;
             }
 
             file = fopen("404-not-found.html", "rb");
             if (file == NULL) {
                 perror("fopen() failed");
-                goto error_response;
+                goto error_file;
             }
 
             break;
@@ -145,7 +155,7 @@ void* client_thread_start(void* sock_ptr) {
 
         default:
             perror("fopen() failed");
-            goto error_response;
+            goto error_file;
         }
     } else {
         bool append_r = append(&response,
@@ -155,14 +165,14 @@ void* client_thread_start(void* sock_ptr) {
         );
         if (!append_r) {
             print_oom();
-            goto error_response;
+            goto error_file;
         }
     }
 
     while (true) {
         if (!reserve(&response, CHUNK_SIZE)) {
             print_oom();
-            goto error_response;
+            goto error_file;
         }
 
         size_t n_read = fread(&response.ptr[response.len], 1, CHUNK_SIZE, file);
@@ -171,12 +181,17 @@ void* client_thread_start(void* sock_ptr) {
                 break;
             } else {
                 perror("fread() failed");
-                goto error_response;
+                goto error_file;
             }
         }
 
         response.len += n_read;
     }
+
+    fclose_c(file);
+    file = NULL;
+
+    // Write HTTP response /////////////////////////////////////////////////////
 
     char* remain_ptr = response.ptr;
     size_t remain_len = response.len;
@@ -185,10 +200,10 @@ void* client_thread_start(void* sock_ptr) {
         ssize_t n_written = write(sock, remain_ptr, remain_len);
         if (n_written == -1) {
             perror("write() failed");
-            goto error_response;
+            goto error_file;
         } else if (n_written == 0) {
             fprintf(stderr, "Could not write HTTP response\n");
-            goto error_response;
+            goto error_file;
         }
 
         remain_len -= n_written;
@@ -196,7 +211,10 @@ void* client_thread_start(void* sock_ptr) {
         remain_ptr = &remain_ptr[n_written];
     }
 
-error_response:
+    // Cleanup /////////////////////////////////////////////////////////////////
+
+error_file:
+    fclose_c(file);
     destroy_string(&response);
 error_request:
     destroy_string(&request);
