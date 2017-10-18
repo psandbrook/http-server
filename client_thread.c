@@ -57,7 +57,7 @@ void* client_thread_start(void* sock_ptr) {
         char* chunk = &request.ptr[request.len - 1];
         ssize_t n_read = read(sock, chunk, CHUNK_SIZE);
         if (n_read == -1) {
-            perror("read() failed");
+            perror("read");
             goto error_request;
         } else if (n_read == 0) {
             print_http_req_err();
@@ -125,7 +125,7 @@ void* client_thread_start(void* sock_ptr) {
 
             file = fopen("403-forbidden.html", "rb");
             if (file == NULL) {
-                perror("fopen() failed");
+                perror("fopen");
                 goto error_file;
             }
 
@@ -146,7 +146,7 @@ void* client_thread_start(void* sock_ptr) {
 
             file = fopen("404-not-found.html", "rb");
             if (file == NULL) {
-                perror("fopen() failed");
+                perror("fopen");
                 goto error_file;
             }
 
@@ -154,7 +154,7 @@ void* client_thread_start(void* sock_ptr) {
         }
 
         default:
-            perror("fopen() failed");
+            perror("fopen");
             goto error_file;
         }
     } else {
@@ -180,7 +180,7 @@ void* client_thread_start(void* sock_ptr) {
             if (feof(file) != 0) {
                 break;
             } else {
-                perror("fread() failed");
+                perror("fread");
                 goto error_file;
             }
         }
@@ -199,7 +199,7 @@ void* client_thread_start(void* sock_ptr) {
 
         ssize_t n_written = write(sock, remain_ptr, remain_len);
         if (n_written == -1) {
-            perror("write() failed");
+            perror("write");
             goto error_file;
         } else if (n_written == 0) {
             fprintf(stderr, "Could not write HTTP response\n");

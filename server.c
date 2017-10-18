@@ -26,6 +26,12 @@ static bool str_to_u16(const char* str, uint16_t* out) {
     return true;
 }
 
+static void close_c(int fd) {
+    if (fd >= 0) {
+        close(fd);
+    }
+}
+
 int main(int argc, char** argv) {
     int ret = 0;
 
@@ -45,7 +51,7 @@ int main(int argc, char** argv) {
 
     int lis_sock = socket(AF_INET6, SOCK_STREAM, 0);
     if (lis_sock == -1) {
-        perror("socket() failed");
+        perror("socket");
         ret = 1;
         goto error;
     }
@@ -65,24 +71,28 @@ int main(int argc, char** argv) {
 
     int bind_r = bind(lis_sock, (const struct sockaddr*)&addr, sizeof(addr));
     if (bind_r != 0) {
-        perror("bind() failed");
+        perror("bind");
         ret = 1;
         goto error_lis_sock;
     }
 
     int listen_r = listen(lis_sock, 128);
     if (listen_r != 0) {
-        perror("listen() failed");
+        perror("listen");
         ret = 1;
         goto error_lis_sock;
     }
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
     bool end = false;
     while (!end) {
 
         int c_sock = accept(lis_sock, NULL, NULL);
         if (c_sock == -1) {
-            perror("accept() failed");
+            perror("accept");
             switch (errno) {
             case ECONNABORTED:
             case EINTR:
@@ -92,20 +102,16 @@ int main(int argc, char** argv) {
             default:
                 ret = 1;
                 end = true;
-                goto error_lis_sock;
+                goto error_c_sock;
             }
         }
 
-        pthread_attr_t attr;
-        pthread_attr_init(&attr);
-        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-
         int* c_sock_ptr = malloc(sizeof(int));
         if (c_sock_ptr == NULL) {
-            perror("malloc() failed");
+            perror("malloc");
             ret = 1;
             end = true;
-            goto error_attr;
+            goto error_c_sock_ptr;
         }
 
         *c_sock_ptr = c_sock;
@@ -115,19 +121,23 @@ int main(int argc, char** argv) {
         int create_r = pthread_create(&c_thread, &attr, client_thread_start, c_sock_ptr);
         if (create_r != 0) {
             errno = create_r;
-            perror("pthread_create() failed");
+            perror("pthread_create");
             ret = 1;
             end = true;
-            goto error_attr;
+            goto error_c_sock_ptr;
         }
 
-error_attr:
-        pthread_attr_destroy(&attr);
-        close(c_sock);
+        c_sock_ptr = NULL;
+
+error_c_sock_ptr:
+        free(c_sock_ptr);
+error_c_sock:
+        close_c(c_sock);
     }
 
+    pthread_attr_destroy(&attr);
 error_lis_sock:
-    close(lis_sock);
+    close_c(lis_sock);
 error:
     return ret;
 }
