@@ -15,7 +15,7 @@ else
 	CFLAGS += $(RELEASE_CFLAGS)
 endif
 
-SOURCES := server.c client_thread.c mystring.c
+SOURCES := server.c client_thread.c mystring.c misc.c
 OBJECTS := $(SOURCES:.c=.o)
 DEPS := $(SOURCES:.c=.d)
 BIN := server

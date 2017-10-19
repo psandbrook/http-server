@@ -6,11 +6,12 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
 #include <pthread.h>
 
 #include "client_thread.h"
+#include "misc.h"
 
 // Converts a string to an unsigned 16-bit integer.
 // On success, `*out` is set to the result and `true` is returned. On failure,
@@ -24,13 +25,6 @@ static bool str_to_u16(const char* str, uint16_t* out) {
 
     *out = out_l;
     return true;
-}
-
-// Like `close`, but is a no-op if `fd` is negative.
-static void close_c(int fd) {
-    if (fd >= 0) {
-        close(fd);
-    }
 }
 
 int main(int argc, char** argv) {

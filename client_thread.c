@@ -6,9 +6,9 @@
 #include <string.h>
 
 #include <errno.h>
-#include <sys/types.h>
 #include <unistd.h>
 
+#include "misc.h"
 #include "mystring.h"
 
 #define CRLF "\r\n"
@@ -219,6 +219,6 @@ cleanup:
     fclose_c(file);
     destroy_string(&response);
     destroy_string(&request);
-    close(sock);
+    close_c(sock);
     return NULL;
 }
