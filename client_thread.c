@@ -22,6 +22,8 @@ static void print_http_req_err(void) {
     fprintf(stderr, "Invalid HTTP request\n");
 }
 
+// Returns true if the null-terminated string `start` is a prefix of the
+// null-terminated string `str`, false otherwise.
 static bool str_start(const char* str, const char* start) {
     if (strncmp(str, start, strlen(start)) == 0) {
         return true;
@@ -30,6 +32,7 @@ static bool str_start(const char* str, const char* start) {
     }
 }
 
+// Like `fclose`, but is a no-op if `file` is `NULL`.
 static void fclose_c(FILE* file) {
     if (file != NULL) {
         fclose(file);
@@ -40,13 +43,16 @@ void* client_thread_start(void* sock_ptr) {
     int sock = *(int*)sock_ptr;
     free(sock_ptr);
 
+    String request = new_string();
+    String response = new_string();
+    FILE* file = NULL;
+
     // Read HTTP request ///////////////////////////////////////////////////////
 
-    String request = new_string();
     while (true) {
         if (!reserve(&request, CHUNK_SIZE + 1)) {
             print_oom();
-            goto error_request;
+            goto cleanup;
         }
 
         if (request.len == 0) {
@@ -57,10 +63,10 @@ void* client_thread_start(void* sock_ptr) {
         ssize_t n_read = read(sock, &request.ptr[request.len - 1], CHUNK_SIZE);
         if (n_read == -1) {
             perror("read");
-            goto error_request;
+            goto cleanup;
         } else if (n_read == 0) {
             print_http_req_err();
-            goto error_request;
+            goto cleanup;
         }
 
         request.len += n_read;
@@ -74,14 +80,14 @@ void* client_thread_start(void* sock_ptr) {
     const char* method_str = "GET ";
     if (!str_start(request.ptr, method_str)) {
         print_http_req_err();
-        goto error_request;
+        goto cleanup;
     }
 
     char* path = &request.ptr[strlen(method_str)];
     char* sp_ptr = strchr(path, ' ');
     if (sp_ptr == NULL) {
         print_http_req_err();
-        goto error_request;
+        goto cleanup;
     }
 
     *sp_ptr = '\0';
@@ -90,7 +96,7 @@ void* client_thread_start(void* sock_ptr) {
     char* http_ver = sp_ptr + 1;
     if (!str_start(http_ver, "HTTP/1.1" CRLF)) {
         print_http_req_err();
-        goto error_request;
+        goto cleanup;
     }
 
     size_t path_len = strlen(path);
@@ -106,8 +112,7 @@ void* client_thread_start(void* sock_ptr) {
 
     // Construct HTTP response /////////////////////////////////////////////////
 
-    String response = new_string();
-    FILE* file = fopen(path, "rb");
+    file = fopen(path, "rb");
     if (file == NULL) {
         switch (errno) {
 
@@ -119,13 +124,13 @@ void* client_thread_start(void* sock_ptr) {
             );
             if (!append_r) {
                 print_oom();
-                goto error_file;
+                goto cleanup;
             }
 
             file = fopen("403-forbidden.html", "rb");
             if (file == NULL) {
                 perror("fopen");
-                goto error_file;
+                goto cleanup;
             }
 
             break;
@@ -140,13 +145,13 @@ void* client_thread_start(void* sock_ptr) {
             );
             if (!append_r) {
                 print_oom();
-                goto error_file;
+                goto cleanup;
             }
 
             file = fopen("404-not-found.html", "rb");
             if (file == NULL) {
                 perror("fopen");
-                goto error_file;
+                goto cleanup;
             }
 
             break;
@@ -154,7 +159,7 @@ void* client_thread_start(void* sock_ptr) {
 
         default:
             perror("fopen");
-            goto error_file;
+            goto cleanup;
         }
     } else {
         bool append_r = append(&response,
@@ -164,27 +169,25 @@ void* client_thread_start(void* sock_ptr) {
         );
         if (!append_r) {
             print_oom();
-            goto error_file;
+            goto cleanup;
         }
     }
 
+    // Read file into response body
     while (true) {
         if (!reserve(&response, CHUNK_SIZE)) {
             print_oom();
-            goto error_file;
+            goto cleanup;
         }
 
         size_t n_read = fread(&response.ptr[response.len], 1, CHUNK_SIZE, file);
-        if (n_read == 0) {
-            if (feof(file) != 0) {
-                break;
-            } else {
-                perror("fread");
-                goto error_file;
-            }
-        }
-
         response.len += n_read;
+        if (feof(file) != 0) {
+            break;
+        } else if (ferror(file) != 0) {
+            perror("fread");
+            goto cleanup;
+        }
     }
 
     fclose_c(file);
@@ -199,10 +202,10 @@ void* client_thread_start(void* sock_ptr) {
         ssize_t n_written = write(sock, remain_ptr, remain_len);
         if (n_written == -1) {
             perror("write");
-            goto error_file;
+            goto cleanup;
         } else if (n_written == 0) {
             fprintf(stderr, "Could not write HTTP response\n");
-            goto error_file;
+            goto cleanup;
         }
 
         remain_len -= n_written;
@@ -212,10 +215,9 @@ void* client_thread_start(void* sock_ptr) {
 
     // Cleanup /////////////////////////////////////////////////////////////////
 
-error_file:
+cleanup:
     fclose_c(file);
     destroy_string(&response);
-error_request:
     destroy_string(&request);
     close(sock);
     return NULL;

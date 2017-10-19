@@ -26,6 +26,7 @@ static bool str_to_u16(const char* str, uint16_t* out) {
     return true;
 }
 
+// Like `close`, but is a no-op if `fd` is negative.
 static void close_c(int fd) {
     if (fd >= 0) {
         close(fd);
@@ -34,26 +35,32 @@ static void close_c(int fd) {
 
 int main(int argc, char** argv) {
     int ret = 0;
+    int lis_sock = -1;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+
+    // Get port number /////////////////////////////////////////////////////////
 
     if (argc < 2) {
         fprintf(stderr, "No port given\n");
         ret = 1;
-        goto error;
+        goto cleanup;
     }
 
     uint16_t port;
-    bool str_to_u16_r = str_to_u16(argv[1], &port);
-    if (!str_to_u16_r) {
+    if (!str_to_u16(argv[1], &port)) {
         fprintf(stderr, "Port is not valid\n");
         ret = 1;
-        goto error;
+        goto cleanup;
     }
 
-    int lis_sock = socket(AF_INET6, SOCK_STREAM, 0);
+    // Get a listening socket //////////////////////////////////////////////////
+
+    lis_sock = socket(AF_INET6, SOCK_STREAM, 0);
     if (lis_sock == -1) {
         perror("socket");
         ret = 1;
-        goto error;
+        goto cleanup;
     }
 
     int reuse_addr = 1;
@@ -69,28 +76,28 @@ int main(int argc, char** argv) {
         .sin6_scope_id = 0,
     };
 
-    int bind_r = bind(lis_sock, (const struct sockaddr*)&addr, sizeof(addr));
-    if (bind_r != 0) {
+    if (bind(lis_sock, (const struct sockaddr*)&addr, sizeof(addr)) != 0) {
         perror("bind");
         ret = 1;
-        goto error_lis_sock;
+        goto cleanup;
     }
 
-    int listen_r = listen(lis_sock, 128);
-    if (listen_r != 0) {
+    if (listen(lis_sock, 128) != 0) {
         perror("listen");
         ret = 1;
-        goto error_lis_sock;
+        goto cleanup;
     }
 
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
+    // Listen for incoming connections /////////////////////////////////////////
+
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
     bool end = false;
     while (!end) {
+        int c_sock = -1;
+        int* c_sock_ptr = NULL;
 
-        int c_sock = accept(lis_sock, NULL, NULL);
+        c_sock = accept(lis_sock, NULL, NULL);
         if (c_sock == -1) {
             perror("accept");
             switch (errno) {
@@ -101,17 +108,16 @@ int main(int argc, char** argv) {
                 continue;
             default:
                 ret = 1;
-                end = true;
-                goto error_c_sock;
+                goto cleanup;
             }
         }
 
-        int* c_sock_ptr = malloc(sizeof(int));
+        c_sock_ptr = malloc(sizeof(int));
         if (c_sock_ptr == NULL) {
             perror("malloc");
             ret = 1;
             end = true;
-            goto error_c_sock_ptr;
+            goto cleanup_continue;
         }
 
         *c_sock_ptr = c_sock;
@@ -124,20 +130,20 @@ int main(int argc, char** argv) {
             perror("pthread_create");
             ret = 1;
             end = true;
-            goto error_c_sock_ptr;
+            goto cleanup_continue;
         }
 
         c_sock_ptr = NULL;
 
-error_c_sock_ptr:
+cleanup_continue:
         free(c_sock_ptr);
-error_c_sock:
         close_c(c_sock);
     }
 
+    // Cleanup /////////////////////////////////////////////////////////////////
+
+cleanup:
     pthread_attr_destroy(&attr);
-error_lis_sock:
     close_c(lis_sock);
-error:
     return ret;
 }
