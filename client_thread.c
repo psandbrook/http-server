@@ -25,11 +25,7 @@ static void print_http_req_err(void) {
 // Returns true if the null-terminated string `start` is a prefix of the
 // null-terminated string `str`, false otherwise.
 static bool str_start(const char* str, const char* start) {
-    if (strncmp(str, start, strlen(start)) == 0) {
-        return true;
-    } else {
-        return false;
-    }
+    return strncmp(str, start, strlen(start)) == 0;
 }
 
 // Like `fclose`, but is a no-op if `file` is `NULL`.
