@@ -1,5 +1,6 @@
 #include "mystring.h"
 
+#include <assert.h>
 #include <string.h>
 
 static size_t max(size_t x, size_t y) {
@@ -15,10 +16,12 @@ String new_string(void) {
 }
 
 void destroy_string(String* self) {
+    assert(self != NULL);
     free(self->ptr);
 }
 
 bool reserve(String* self, size_t add) {
+    assert(self != NULL);
     size_t new_len = self->len + add;
 
     if (self->cap < new_len) {
@@ -34,6 +37,7 @@ bool reserve(String* self, size_t add) {
 }
 
 bool append(String* self, const char* str) {
+    assert(self != NULL);
     size_t str_len = strlen(str);
     if (!reserve(self, str_len)) { return false; }
     memcpy(&self->ptr[self->len], str, str_len);

@@ -1,3 +1,5 @@
+# TODO: Remove DEBUG_CFLAGS for final submission
+
 CC := gcc
 WARN_CFLAGS := \
 	-Wall -Wextra -pedantic -Wcast-align -Wcast-qual -Wunused \
@@ -6,7 +8,7 @@ WARN_CFLAGS := \
 	-Wstrict-overflow=5 -Wundef -Wfloat-equal -Wabi
 
 DEBUG_CFLAGS := -O0 -g
-RELEASE_CFLAGS := -O3 -g0 -DNDEBUG
+RELEASE_CFLAGS := -O3 -g0
 
 CFLAGS := $(WARN_CFLAGS) -std=c99 -MMD -MP -pthread
 ifdef DEBUG
@@ -15,7 +17,7 @@ else
 	CFLAGS += $(RELEASE_CFLAGS)
 endif
 
-SOURCES := server.c client_thread.c mystring.c misc.c
+SOURCES := server.c client_thread.c mystring.c
 OBJECTS := $(SOURCES:.c=.o)
 DEPS := $(SOURCES:.c=.d)
 BIN := server

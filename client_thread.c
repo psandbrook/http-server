@@ -8,15 +8,10 @@
 #include <errno.h>
 #include <unistd.h>
 
-#include "misc.h"
 #include "mystring.h"
 
 #define CRLF "\r\n"
 #define CHUNK_SIZE 1024
-
-static void print_oom(void) {
-    fprintf(stderr, "Out of memory\n");
-}
 
 static void print_http_req_err(void) {
     fprintf(stderr, "Invalid HTTP request\n");
@@ -35,6 +30,13 @@ static void fclose_c(FILE* file) {
     }
 }
 
+// Like `close`, but is a no-op if `fd` is negative.
+static void close_c(int fd) {
+    if (fd >= 0) {
+        close(fd);
+    }
+}
+
 void* client_thread_start(void* sock_ptr) {
     int sock = *(int*)sock_ptr;
     free(sock_ptr);
@@ -47,7 +49,7 @@ void* client_thread_start(void* sock_ptr) {
 
     while (true) {
         if (!reserve(&request, CHUNK_SIZE + 1)) {
-            print_oom();
+            perror("reserve");
             goto cleanup;
         }
 
@@ -98,7 +100,7 @@ void* client_thread_start(void* sock_ptr) {
     size_t path_len = strlen(path);
     if (path[path_len - 1] == '/') {
         // If the path ends with a `/`, it's a directory
-        strcpy(&path[path_len], "index.html");
+        strcat(path, "index.html");
     }
 
     // Remove leading slash
@@ -109,70 +111,57 @@ void* client_thread_start(void* sock_ptr) {
     // Construct HTTP response /////////////////////////////////////////////////
 
     file = fopen(path, "rb");
+    const char* header_str;
     if (file == NULL) {
+
+        const char* new_path;
         switch (errno) {
 
-        case EACCES: {
-            bool append_r = append(&response,
+        case EACCES:
+            header_str =
                 "HTTP/1.1 403 Forbidden" CRLF
-                "Connection: close" CRLF
-                CRLF
-            );
-            if (!append_r) {
-                print_oom();
-                goto cleanup;
-            }
-
-            file = fopen("403-forbidden.html", "rb");
-            if (file == NULL) {
-                perror("fopen");
-                goto cleanup;
-            }
-
+                "Connection: close" CRLF;
+            new_path = "403-forbidden.html";
             break;
-         }
 
         case ENOENT:
-        case ENOTDIR: {
-            bool append_r = append(&response,
+        case ENOTDIR:
+            header_str =
                 "HTTP/1.1 404 Not Found" CRLF
-                "Connection: close" CRLF
-                CRLF
-            );
-            if (!append_r) {
-                print_oom();
-                goto cleanup;
-            }
-
-            file = fopen("404-not-found.html", "rb");
-            if (file == NULL) {
-                perror("fopen");
-                goto cleanup;
-            }
-
+                "Connection: close" CRLF;
+            new_path = "404-not-found.html";
             break;
-        }
 
         default:
             perror("fopen");
             goto cleanup;
         }
-    } else {
-        bool append_r = append(&response,
-            "HTTP/1.1 200 OK" CRLF
-            "Connection: close" CRLF
-            CRLF
-        );
-        if (!append_r) {
-            print_oom();
+
+        file = fopen(new_path, "rb");
+        if (file == NULL) {
+            perror("fopen");
             goto cleanup;
         }
+    } else {
+        header_str =
+            "HTTP/1.1 200 OK" CRLF
+            "Connection: close" CRLF;
+    }
+
+    if (!append(&response, header_str)) {
+        perror("append");
+        goto cleanup;
+    }
+
+    if (!append(&response, CRLF)) {
+        perror("append");
+        goto cleanup;
     }
 
     // Read file into response body
     while (true) {
         if (!reserve(&response, CHUNK_SIZE)) {
-            print_oom();
+            perror("reserve");
             goto cleanup;
         }
 
