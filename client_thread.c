@@ -6,17 +6,14 @@
 #include <string.h>
 
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "mystring.h"
 
 #define CRLF "\r\n"
 #define CHUNK_SIZE 1024
-
-typedef enum {
-    METHOD_GET,
-    METHOD_HEAD,
-} Method;
 
 static void print_http_req_err(void) {
     fprintf(stderr, "Invalid HTTP request\n");
@@ -26,6 +23,16 @@ static void print_http_req_err(void) {
 // null-terminated string `str`, false otherwise.
 static bool str_start(const char* str, const char* start) {
     return strncmp(str, start, strlen(start)) == 0;
+}
+
+// Converts a string to an unsigned long.  On success, `*out` is set to the
+// result and `true` is returned. On failure, `false` is returned.
+static bool str_to_ul(const char* str, unsigned long* out) {
+    char* strtol_r = NULL;
+    long out_l = strtol(str, &strtol_r, 0);
+    if (out_l < 0 || strtol_r == str) { return false; }
+    *out = out_l;
+    return true;
 }
 
 // Like `fclose`, but is a no-op if `file` is `NULL`.
@@ -53,10 +60,7 @@ void* client_thread_start(void* sock_ptr) {
     // Read HTTP request ///////////////////////////////////////////////////////
 
     while (true) {
-        if (!reserve(&request, CHUNK_SIZE + 1)) {
-            perror("reserve");
-            goto cleanup;
-        }
+        reserve(&request, CHUNK_SIZE + 1);
 
         if (request.len == 0) {
             request.ptr[0] = '\0';
@@ -80,13 +84,13 @@ void* client_thread_start(void* sock_ptr) {
     // Parse HTTP request //////////////////////////////////////////////////////
 
     // Check method
-    Method method;
+    bool include_file;
     char* path;
     if (str_start(request.ptr, "GET ")) {
-        method = METHOD_GET;
+        include_file = true;
         path = &request.ptr[4];
     } else if (str_start(request.ptr, "HEAD ")) {
-        method = METHOD_HEAD;
+        include_file = false;
         path = &request.ptr[5];
     } else {
         print_http_req_err();
@@ -108,8 +112,7 @@ void* client_thread_start(void* sock_ptr) {
         goto cleanup;
     }
 
-    size_t path_len = strlen(path);
-    if (path[path_len - 1] == '/') {
+    if (path[strlen(path) - 1] == '/') {
         // If the path ends with a `/`, it's a directory
         strcat(path, "index.html");
     }
@@ -117,29 +120,44 @@ void* client_thread_start(void* sock_ptr) {
     // Remove leading slash
     path = &path[1];
 
-    printf("Received HTTP GET request for %s\n", path);
+    // Check for `Range` field
+    bool range = false;
+    unsigned long range_from = 0;
+    unsigned long range_to = 0;
+    char* range_str = strstr(&path[strlen(path) + 1], "Range: bytes=");
+    if (range_str != NULL) {
+        char* from_str = &range_str[13];
+        char* to_str = strchr(range_str, '-');
+        if (to_str != NULL) {
+            to_str = &to_str[1];
+            if (str_to_ul(from_str, &range_from) && str_to_ul(to_str, &range_to)) {
+                range = true;
+            }
+        }
+    }
+
+    if (include_file) {
+        printf("Received HTTP GET request for %s\n", path);
+    } else {
+        printf("Received HTTP HEAD request for %s\n", path);
+    }
 
     // Construct HTTP response /////////////////////////////////////////////////
 
     file = fopen(path, "rb");
-    const char* header_str;
     if (file == NULL) {
 
         const char* new_path;
         switch (errno) {
 
         case EACCES:
-            header_str =
-                "HTTP/1.1 403 Forbidden" CRLF
-                "Connection: close" CRLF;
+            append(&response, "HTTP/1.1 403 Forbidden" CRLF);
             new_path = "403-forbidden.html";
             break;
 
         case ENOENT:
         case ENOTDIR:
-            header_str =
-                "HTTP/1.1 404 Not Found" CRLF
-                "Connection: close" CRLF;
+            append(&response, "HTTP/1.1 404 Not Found" CRLF);
             new_path = "404-not-found.html";
             break;
 
@@ -153,37 +171,79 @@ void* client_thread_start(void* sock_ptr) {
             perror("fopen");
             goto cleanup;
         }
+
+    } else if (range) {
+        // Partial Content response
+
+        struct stat file_stat;
+        if (stat(path, &file_stat) == -1) {
+            perror("stat");
+            goto cleanup;
+        }
+
+        unsigned long file_size = file_stat.st_size;
+        if (range_to < range_from || range_to >= file_size) {
+            // Range is not valid
+            append(&response, "HTTP/1.1 416 Range Not Satisfiable" CRLF);
+            include_file = false;
+
+        } else {
+            append(&response,
+                "HTTP/1.1 206 Partial Content" CRLF
+                "Content-Range: bytes ");
+
+            int val_size = snprintf(NULL, 0, "%lu-%lu/%lu", range_from, range_to, file_size);
+            reserve(&response, val_size + 1);
+            sprintf(&response.ptr[response.len], "%lu-%lu/%lu", range_from ,range_to, file_size);
+            response.len += val_size;
+            append(&response, CRLF);
+        }
+
     } else {
-        header_str =
-            "HTTP/1.1 200 OK" CRLF
-            "Connection: close" CRLF;
+        append(&response, "HTTP/1.1 200 OK" CRLF);
     }
 
-    if (!append(&response, header_str)) {
-        perror("append");
-        goto cleanup;
-    }
-
-    if (!append(&response, CRLF)) {
-        perror("append");
-        goto cleanup;
-    }
+    append(&response,
+        "Connection: close" CRLF
+        "Accept-Ranges: bytes" CRLF
+        CRLF);
 
     // Read file into response body
-    if (method == METHOD_GET) {
-        while (true) {
-            if (!reserve(&response, CHUNK_SIZE)) {
-                perror("reserve");
+    if (include_file) {
+        if (range) {
+            size_t remain_len = (range_to + 1) - range_from;
+            if (fseek(file, range_from, SEEK_SET) != 0) {
+                perror("fseek");
                 goto cleanup;
             }
 
-            size_t n_read = fread(&response.ptr[response.len], 1, CHUNK_SIZE, file);
-            response.len += n_read;
-            if (feof(file) != 0) {
-                break;
-            } else if (ferror(file) != 0) {
-                perror("fread");
-                goto cleanup;
+            reserve(&response, remain_len);
+            while (true) {
+                size_t n_read = fread(&response.ptr[response.len], 1, remain_len, file);
+                if (feof(file) != 0) {
+                    fprintf(stderr, "Unexpected EOF\n");
+                    goto cleanup;
+                } else if (ferror(file) != 0) {
+                    perror("fread");
+                    goto cleanup;
+                }
+
+                response.len += n_read;
+                remain_len -= n_read;
+                if (remain_len == 0) { break; }
+            }
+
+        } else {
+            while (true) {
+                reserve(&response, CHUNK_SIZE);
+                size_t n_read = fread(&response.ptr[response.len], 1, CHUNK_SIZE, file);
+                response.len += n_read;
+                if (feof(file) != 0) {
+                    break;
+                } else if (ferror(file) != 0) {
+                    perror("fread");
+                    goto cleanup;
+                }
             }
         }
     }

@@ -15,10 +15,10 @@ String new_string(void);
 void destroy_string(String* self);
 
 // Reserve extra capacity for `add` more characters.
-bool reserve(String* self, size_t add);
+void reserve(String* self, size_t add);
 
 // Append the null-terminated string `str` to `self`. The terminating null
 // character is not included.
-bool append(String* self, const char* str);
+void append(String* self, const char* str);
 
 #endif

@@ -1,6 +1,7 @@
 #include "mystring.h"
 
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 
 static size_t max(size_t x, size_t y) {
@@ -20,27 +21,27 @@ void destroy_string(String* self) {
     free(self->ptr);
 }
 
-bool reserve(String* self, size_t add) {
+void reserve(String* self, size_t add) {
     assert(self != NULL);
     size_t new_len = self->len + add;
 
     if (self->cap < new_len) {
         size_t new_cap = max(new_len, self->cap * 1.5);
         char* new_ptr = realloc(self->ptr, new_cap);
-        if (new_ptr == NULL) { return false; }
+        if (new_ptr == NULL) {
+            fprintf(stderr, "Out of memory\n");
+            exit(1);
+        }
 
         self->cap = new_cap;
         self->ptr = new_ptr;
     }
-
-    return true;
 }
 
-bool append(String* self, const char* str) {
+void append(String* self, const char* str) {
     assert(self != NULL);
     size_t str_len = strlen(str);
-    if (!reserve(self, str_len)) { return false; }
+    reserve(self, str_len);
     memcpy(&self->ptr[self->len], str, str_len);
     self->len += str_len;
-    return true;
 }
