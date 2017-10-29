@@ -13,6 +13,11 @@
 #define CRLF "\r\n"
 #define CHUNK_SIZE 1024
 
+typedef enum {
+    METHOD_GET,
+    METHOD_HEAD,
+} Method;
+
 static void print_http_req_err(void) {
     fprintf(stderr, "Invalid HTTP request\n");
 }
@@ -75,13 +80,19 @@ void* client_thread_start(void* sock_ptr) {
     // Parse HTTP request //////////////////////////////////////////////////////
 
     // Check method
-    const char* method_str = "GET ";
-    if (!str_start(request.ptr, method_str)) {
+    Method method;
+    char* path;
+    if (str_start(request.ptr, "GET ")) {
+        method = METHOD_GET;
+        path = &request.ptr[4];
+    } else if (str_start(request.ptr, "HEAD ")) {
+        method = METHOD_HEAD;
+        path = &request.ptr[5];
+    } else {
         print_http_req_err();
         goto cleanup;
     }
 
-    char* path = &request.ptr[strlen(method_str)];
     char* sp_ptr = strchr(path, ' ');
     if (sp_ptr == NULL) {
         print_http_req_err();
@@ -159,19 +170,21 @@ void* client_thread_start(void* sock_ptr) {
     }
 
     // Read file into response body
-    while (true) {
-        if (!reserve(&response, CHUNK_SIZE)) {
-            perror("reserve");
-            goto cleanup;
-        }
+    if (method == METHOD_GET) {
+        while (true) {
+            if (!reserve(&response, CHUNK_SIZE)) {
+                perror("reserve");
+                goto cleanup;
+            }
 
-        size_t n_read = fread(&response.ptr[response.len], 1, CHUNK_SIZE, file);
-        response.len += n_read;
-        if (feof(file) != 0) {
-            break;
-        } else if (ferror(file) != 0) {
-            perror("fread");
-            goto cleanup;
+            size_t n_read = fread(&response.ptr[response.len], 1, CHUNK_SIZE, file);
+            response.len += n_read;
+            if (feof(file) != 0) {
+                break;
+            } else if (ferror(file) != 0) {
+                perror("fread");
+                goto cleanup;
+            }
         }
     }
 
