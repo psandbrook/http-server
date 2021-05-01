@@ -3,7 +3,7 @@ WARN_CFLAGS := \
 	-Wall -Wextra -pedantic -Wcast-align -Wcast-qual -Wunused \
 	-Wdisabled-optimization -Wformat=2 -Winit-self -Wlogical-op \
 	-Wmissing-declarations -Wmissing-include-dirs -Wredundant-decls -Wshadow \
-	-Wstrict-overflow=5 -Wundef -Wfloat-equal -Wabi
+	-Wstrict-overflow=5 -Wundef -Wfloat-equal
 
 CFLAGS := $(WARN_CFLAGS) -std=c99 -pthread -O3 -g0
 
